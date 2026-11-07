@@ -1,0 +1,778 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Circuit Lab</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f3f5f8; --ink: #111827; --muted: #4b5563; --line: #1f2937;
+    --grid: #cbd5e1; --accent: #2563eb; --warn: #b91c1c; --ok: #15803d;
+    --dot: #f59e0b; --sel: #2563eb; --ghost: #2563eb;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .app { display: grid; grid-template-columns: 190px 1fr 320px; grid-template-rows: auto 1fr; height: 100vh; gap: 10px; padding: 10px; }
+  header { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 22px; margin: 0 12px 0 0; }
+  header select, header button { font-size: 16px; padding: 6px 10px; border-radius: 8px; border: 2px solid var(--accent);
+    background: #fff; color: var(--accent); font-weight: 700; cursor: pointer; }
+  .banner { font-weight: 800; color: #fff; background: var(--warn); padding: 6px 12px; border-radius: 8px; }
+  .palette { background: var(--panel); border-radius: 10px; padding: 8px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .palette .hint { font-size: 13px; color: var(--muted); margin: 4px 2px 8px; }
+  .tool { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; border: 2px solid transparent;
+    background: #fff; font-size: 15px; font-weight: 600; cursor: pointer; text-align: left; color: var(--ink); }
+  .tool svg { width: 44px; height: 22px; flex: none; }
+  .tool.active { border-color: var(--accent); background: #dbeafe; }
+  .board { min-width: 0; min-height: 0; display: flex; }
+  .board svg { width: 100%; height: 100%; touch-action: none; user-select: none; }
+  .side { background: var(--panel); border-radius: 10px; padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  .side h2 { font-size: 20px; margin: 0; }
+  .side .muted { color: var(--muted); font-size: 15px; }
+  .ctl label { display: flex; justify-content: space-between; font-size: 16px; font-weight: 600; }
+  .ctl input[type=range] { width: 100%; accent-color: var(--accent); }
+  .ctl .num { display: flex; align-items: center; gap: 4px; }
+  .ctl input[type=number] { width: 96px; font-size: 16px; font-weight: 700; text-align: right; padding: 2px 4px;
+    border: 2px solid #cbd5e1; border-radius: 6px; font-variant-numeric: tabular-nums; }
+  .ctl input[type=number]:focus { border-color: var(--accent); outline: none; }
+  .row { display: flex; gap: 8px; }
+  .row button { flex: 1; font-size: 15px; padding: 6px; border-radius: 8px; border: 2px solid var(--accent); background: #fff; color: var(--accent); font-weight: 700; cursor: pointer; }
+  .row button.danger { border-color: var(--warn); color: var(--warn); }
+  dl.read { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 19px; margin: 0; }
+  dl.read dt { color: var(--muted); }
+  dl.read dd { margin: 0; text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; }
+  canvas { width: 100%; height: 220px; background: #fff; border-radius: 8px; }
+  .hidden { display: none !important; }
+  svg text { font-family: inherit; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Circuit Lab</h1>
+    <select id="preset">
+      <option value="">Load a scenario…</option>
+      <option value="series">Resistors in series</option>
+      <option value="parallel">Resistors in parallel</option>
+      <option value="ldr">Potential divider with LDR</option>
+      <option value="therm">Potential divider with thermistor</option>
+      <option value="pot">Potentiometer controlling a lamp</option>
+      <option value="emf">e.m.f. and internal resistance</option>
+      <option value="lampiv">Lamp I–V characteristic</option>
+    </select>
+    <button id="clear">Clear board</button>
+    <label style="display:flex;gap:6px;align-items:center;font-weight:600"><input type="checkbox" id="electrons"> Show electron flow</label>
+    <span id="short" class="banner hidden">Short circuit! Very large current.</span>
+  </header>
+
+  <div class="palette" id="palette">
+    <div class="hint">Pick a part, then click between two grid dots to plug it in. Drag parts to move them.</div>
+  </div>
+
+  <div class="board"><svg id="board"></svg></div>
+
+  <div class="side">
+    <div id="nosel">
+      <h2>Nothing selected</h2>
+      <p class="muted">Click a component to see its values, change it, and plot its I–V graph.</p>
+      <p class="muted">Junctions appear automatically where three or more connections meet.</p>
+    </div>
+    <div id="sel" class="hidden" style="display:flex;flex-direction:column;gap:10px">
+      <h2 id="sel-title"></h2>
+      <div id="sel-ctl" style="display:flex;flex-direction:column;gap:8px"></div>
+      <div class="row">
+        <button id="btn-flip">Flip direction</button>
+        <button id="btn-del" class="danger">Delete</button>
+      </div>
+      <dl class="read">
+        <dt>p.d. across</dt><dd id="r-V"></dd>
+        <dt>current</dt><dd id="r-I"></dd>
+        <dt id="r-Rl">resistance</dt><dd id="r-R"></dd>
+        <dt>power</dt><dd id="r-P"></dd>
+      </dl>
+      <div id="graph-box">
+        <div class="muted" id="graph-title">I–V graph (dot = now)</div>
+        <canvas id="graph" width="600" height="440"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===================== component library =====================
+const LAMP_K = 0.4; // lamp: R = R0 (1 + k|V|) — filament heats up, I–V curves
+const TYPES = {
+  battery:   { label: 'Battery / cell', cells: 1, props: { E: 6, r: 0.5 } },
+  resistor:  { label: 'Resistor', cells: 1, props: { R: 10 } },
+  varres:    { label: 'Variable resistor', cells: 1, props: { R: 20, max: 100 } },
+  ammeter:   { label: 'Ammeter', cells: 1, props: {} },
+  voltmeter: { label: 'Voltmeter', cells: 1, props: {} },
+  pot:       { label: 'Potentiometer', cells: 2, props: { R: 100, alpha: 0.5 } },
+  ldr:       { label: 'LDR', cells: 1, props: { light: 50 } },
+  thermistor:{ label: 'Thermistor (NTC)', cells: 1, props: { T: 25 } },
+  switch:    { label: 'Switch', cells: 1, props: { closed: true } },
+  lamp:      { label: 'Lamp', cells: 1, props: { R0: 4 } },
+  wire:      { label: 'Wire', cells: 1, props: {} },
+};
+const R_WIRE = 1e-4, G_METER_V = 1e-9, G_MIN = 1e-10, G_OPEN = 1e-12;
+
+function ldrR(light) { return 200 + 40000 * Math.pow(10, -light / 25); }
+function thermR(T) { return 2000 * Math.exp(3500 * (1 / (T + 273.15) - 1 / 298.15)); }
+function lampR(R0, V) { return R0 * (1 + LAMP_K * Math.abs(V)); }
+
+// resistance of a 2-terminal part at p.d. V (null for battery / pot which are special)
+function partR(c, V = 0) {
+  const p = c.props;
+  switch (c.type) {
+    case 'resistor': return p.R;
+    case 'varres': return Math.max(p.R, 1e-3);
+    case 'ldr': return ldrR(p.light);
+    case 'thermistor': return thermR(p.T);
+    case 'lamp': return lampR(p.R0, V);
+    case 'wire': case 'ammeter': return R_WIRE;
+    case 'voltmeter': return 1 / G_METER_V;
+    case 'switch': return p.closed ? R_WIRE : 1 / G_OPEN;
+  }
+  return null;
+}
+
+// ===================== board model =====================
+const COLS = 15, ROWS = 10, CELL = 64, M = 28;
+const W = M * 2 + (COLS - 1) * CELL, H = M * 2 + (ROWS - 1) * CELL;
+let comps = [];
+let nextId = 1;
+let selectedId = null;
+let tool = 'select';
+let showElectrons = false;
+let sol = { nodeV: {}, res: {}, short: false };
+
+const key = p => p[0] + ',' + p[1];
+const px = p => [M + p[0] * CELL, M + p[1] * CELL];
+function ends(c) { return c.rev ? [c.b, c.a] : [c.a, c.b]; }
+function midNode(c) { return [(c.a[0] + c.b[0]) / 2, (c.a[1] + c.b[1]) / 2]; }
+function unitEdges(a, b) {
+  const out = [], dx = Math.sign(b[0] - a[0]), dy = Math.sign(b[1] - a[1]);
+  let p = a.slice();
+  while (p[0] !== b[0] || p[1] !== b[1]) {
+    const q = [p[0] + dx, p[1] + dy];
+    out.push(edgeKey(p, q)); p = q;
+  }
+  return out;
+}
+function edgeKey(p, q) { const [s, t] = [key(p), key(q)].sort(); return s + '|' + t; }
+function occupied(exceptId) {
+  const s = new Set();
+  for (const c of comps) if (c.id !== exceptId) unitEdges(c.a, c.b).forEach(e => s.add(e));
+  return s;
+}
+function fits(a, b, exceptId) {
+  const occ = occupied(exceptId);
+  return unitEdges(a, b).every(e => !occ.has(e));
+}
+function add(type, a, b, props = {}, rev = false) {
+  const c = { id: nextId++, type, a, b, rev, props: { ...TYPES[type].props, ...props } };
+  comps.push(c);
+  return c;
+}
+
+// ===================== solver (nodal analysis) =====================
+function gauss(A, z) {
+  const n = z.length;
+  for (let i = 0; i < n; i++) {
+    let piv = i;
+    for (let r = i + 1; r < n; r++) if (Math.abs(A[r][i]) > Math.abs(A[piv][i])) piv = r;
+    [A[i], A[piv]] = [A[piv], A[i]]; [z[i], z[piv]] = [z[piv], z[i]];
+    const d = A[i][i] || 1e-30;
+    for (let r = i + 1; r < n; r++) {
+      const f = A[r][i] / d;
+      if (!f) continue;
+      for (let k = i; k < n; k++) A[r][k] -= f * A[i][k];
+      z[r] -= f * z[i];
+    }
+  }
+  const x = new Array(n).fill(0);
+  for (let i = n - 1; i >= 0; i--) {
+    let s = z[i];
+    for (let k = i + 1; k < n; k++) s -= A[i][k] * x[k];
+    x[i] = s / (A[i][i] || 1e-30);
+  }
+  return x;
+}
+
+function solve() {
+  const nodes = new Map();
+  const nid = p => { const k = key(p); if (!nodes.has(k)) nodes.set(k, nodes.size); return nodes.get(k); };
+  comps.forEach(c => { nid(c.a); nid(c.b); if (c.type === 'pot') nid(midNode(c)); });
+  const bat = comps.find(c => c.type === 'battery');
+  const gnd = bat ? nid(ends(bat)[1]) : 0;
+  const n = nodes.size;
+  const lampV = {};
+  let V = new Array(n).fill(0);
+  for (let iter = 0; iter < (comps.some(c => c.type === 'lamp') ? 40 : 1); iter++) {
+    const A = Array.from({ length: n }, () => new Array(n).fill(0));
+    const z = new Array(n).fill(0);
+    const stampG = (i, j, g) => { A[i][i] += g; A[j][j] += g; A[i][j] -= g; A[j][i] -= g; };
+    for (let i = 0; i < n; i++) A[i][i] += G_MIN;
+    for (const c of comps) {
+      const [pa, pb] = ends(c), i = nid(pa), j = nid(pb);
+      if (c.type === 'battery') {
+        const r = Math.max(c.props.r, 1e-3), g = 1 / r;
+        stampG(i, j, g); z[i] += c.props.E * g; z[j] -= c.props.E * g;
+      } else if (c.type === 'pot') {
+        const m = nid(midNode(c)), R = c.props.R, al = c.props.alpha;
+        stampG(i, m, 1 / Math.max(R * al, 1e-3)); stampG(m, j, 1 / Math.max(R * (1 - al), 1e-3));
+      } else {
+        const R = partR(c, c.type === 'lamp' ? (lampV[c.id] || 0) : 0);
+        stampG(i, j, 1 / R);
+      }
+    }
+    // ground row
+    A[gnd] = new Array(n).fill(0); A[gnd][gnd] = 1; z[gnd] = 0;
+    const Vn = n ? gauss(A, z) : [];
+    V = Vn;
+    let moved = 0;
+    for (const c of comps) if (c.type === 'lamp') {
+      const [pa, pb] = ends(c);
+      const v = V[nid(pa)] - V[nid(pb)];
+      const old = lampV[c.id] || 0;
+      lampV[c.id] = 0.5 * old + 0.5 * v;
+      moved = Math.max(moved, Math.abs(v - old));
+    }
+    if (iter > 2 && moved < 1e-7) break;
+  }
+  const nodeV = {};
+  for (const [k, i] of nodes) nodeV[k] = V[i];
+  const res = {};
+  let short = false;
+  for (const c of comps) {
+    const [pa, pb] = ends(c);
+    const Vab = nodeV[key(pa)] - nodeV[key(pb)];
+    if (c.type === 'battery') {
+      const r = Math.max(c.props.r, 1e-3);
+      const I = (Vab - c.props.E) / r;        // a→b through the battery (negative when it drives current out of +)
+      if (Math.abs(I) > 50) short = true;
+      res[c.id] = { V: Vab, I, R: c.props.r, segs: [[pa, pb, I]] };
+    } else if (c.type === 'pot') {
+      const m = midNode(c), Vm = nodeV[key(m)], R = c.props.R, al = c.props.alpha;
+      const I1 = (nodeV[key(pa)] - Vm) / Math.max(R * al, 1e-3);
+      const I2 = (Vm - nodeV[key(pb)]) / Math.max(R * (1 - al), 1e-3);
+      res[c.id] = { V: Vab, I: I1, R, Vwiper: nodeV[key(pa)] - Vm, segs: [[pa, m, I1], [m, pb, I2]] };
+    } else {
+      const R = partR(c, Vab);
+      const I = Vab / R;
+      res[c.id] = { V: Vab, I, R, segs: c.type === 'voltmeter' ? [] : [[pa, pb, I]] };
+    }
+  }
+  sol = { nodeV, res, short };
+}
+
+// ===================== drawing =====================
+const svg = document.getElementById('board');
+svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+const NS = 'http://www.w3.org/2000/svg';
+
+// symbol drawn horizontally from x=0 to x=len along y=0
+function symbol(c, len) {
+  const m = len / 2, t = c.type, p = c.props;
+  const S = 'stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round"';
+  const leads = (g) => `<line x1="0" y1="0" x2="${m - g}" y2="0" ${S}/><line x1="${m + g}" y1="0" x2="${len}" y2="0" ${S}/>`;
+  const box = `<rect x="${m - 18}" y="-8" width="36" height="16" fill="#fff" ${S.replace('fill="none"', '')}/>`;
+  switch (t) {
+    case 'wire': return `<line x1="0" y1="0" x2="${len}" y2="0" ${S}/>`;
+    case 'resistor': return leads(18) + box;
+    case 'varres': return leads(18) + box +
+      `<line x1="${m - 22}" y1="14" x2="${m + 20}" y2="-14" ${S} stroke-width="3"/><path d="M${m + 20},-14 l-10,1 l6,8 z" fill="currentColor"/>`;
+    case 'battery': return leads(7) +
+      `<line x1="${m - 7}" y1="-18" x2="${m - 7}" y2="18" ${S} stroke-width="3"/>` +
+      `<line x1="${m + 7}" y1="-9" x2="${m + 7}" y2="9" ${S} stroke-width="8" stroke-linecap="butt"/>` +
+      `<text x="${m - 20}" y="-18" font-size="18" font-weight="800" fill="currentColor" stroke="none">+</text>`;
+    case 'ammeter': case 'voltmeter': return leads(15) + `<circle cx="${m}" cy="0" r="15" fill="#fff" ${S.replace('fill="none"', '')}/>`;
+    case 'lamp': return leads(14) + `<circle cx="${m}" cy="0" r="14" fill="#fff" ${S.replace('fill="none"', '')}/>` +
+      `<line x1="${m - 10}" y1="-10" x2="${m + 10}" y2="10" ${S} stroke-width="3"/><line x1="${m - 10}" y1="10" x2="${m + 10}" y2="-10" ${S} stroke-width="3"/>`;
+    case 'ldr': return leads(18) + `<circle cx="${m}" cy="0" r="24" fill="#fff" ${S.replace('fill="none"', '')} stroke-width="2"/>` + box +
+      `<line x1="${m - 26}" y1="-30" x2="${m - 12}" y2="-16" ${S} stroke-width="2"/><path d="M${m - 12},-16 l-7,-1 l5,-5 z" fill="currentColor"/>` +
+      `<line x1="${m - 14}" y1="-34" x2="${m}" y2="-20" ${S} stroke-width="2"/><path d="M${m},-20 l-7,-1 l5,-5 z" fill="currentColor"/>`;
+    case 'thermistor': return leads(18) + box +
+      `<polyline points="${m - 24},16 ${m - 16},16 ${m + 18},-16" ${S} stroke-width="3"/>`;
+    case 'switch': return leads(14) + `<circle cx="${m - 14}" cy="0" r="4" fill="currentColor"/><circle cx="${m + 14}" cy="0" r="4" fill="currentColor"/>` +
+      `<line x1="${m - 14}" y1="0" x2="${m + 14}" y2="${p.closed ? 0 : -18}" ${S}/>`;
+    case 'pot': {
+      const wx = m - 44 + 88 * p.alpha, w = c.wside || 1;
+      return `<line x1="0" y1="0" x2="${m - 44}" y2="0" ${S}/><line x1="${m + 44}" y1="0" x2="${len}" y2="0" ${S}/>` +
+        `<rect x="${m - 44}" y="-9" width="88" height="18" fill="#fff" ${S.replace('fill="none"', '')}/>` +
+        `<line x1="${m}" y1="${32 * w}" x2="${wx}" y2="${13 * w}" ${S} stroke-width="3"/><path d="M${wx},${11 * w} l-9,${4 * w} l7,${6 * w} z" fill="currentColor"/>`;
+    }
+  }
+  return '';
+}
+
+function transformFor(a, b) {
+  const [x0, y0] = px(a), [x1, y1] = px(b);
+  const ang = Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI;
+  return { tf: `translate(${x0},${y0}) rotate(${ang})`, len: Math.hypot(x1 - x0, y1 - y0), x0, y0, x1, y1 };
+}
+
+const fmt = (x, u) => {
+  const ax = Math.abs(x);
+  if (u === 'A' && ax < 0.1 && ax >= 1e-6) return (x * 1000).toPrecision(3) + ' mA';
+  if (ax < 1e-6) return '0 ' + u;
+  if (u === 'Ω' && ax >= 1e6) return (x / 1e6).toPrecision(3) + ' MΩ';
+  if (u === 'Ω' && ax >= 1000) return (x / 1000).toPrecision(3) + ' kΩ';
+  if (ax >= 1e6) return x.toExponential(2) + ' ' + u;
+  return x.toPrecision(3) + ' ' + u;
+};
+
+function labelFor(c) {
+  const p = c.props, r = sol.res[c.id];
+  switch (c.type) {
+    case 'battery': return `${p.E.toFixed(1)} V` + (p.r > 0 ? `, r = ${p.r.toFixed(1)} Ω` : '');
+    case 'resistor': return fmt(p.R, 'Ω');
+    case 'varres': return fmt(p.R, 'Ω');
+    case 'pot': return fmt(p.R, 'Ω');
+    case 'ldr': return `LDR ${p.light}% light`;
+    case 'thermistor': return `${p.T} °C`;
+    case 'ammeter': return r ? fmt(Math.abs(r.I), 'A') : '';
+    case 'voltmeter': return r ? fmt(Math.abs(r.V), 'V') : '';
+    case 'switch': return p.closed ? 'closed' : 'open';
+  }
+  return '';
+}
+
+let ghost = null;   // {type, a, b, ok}
+const dotState = {}; // id -> phase per segment
+
+function render() {
+  let s = '';
+  // grid dots
+  for (let x = 0; x < COLS; x++) for (let y = 0; y < ROWS; y++) {
+    const [X, Y] = px([x, y]);
+    s += `<circle cx="${X}" cy="${Y}" r="3" style="fill:var(--grid)"/>`;
+  }
+  // selection halo
+  const sc = comps.find(c => c.id === selectedId);
+  if (sc) {
+    const [X0, Y0] = px(sc.a), [X1, Y1] = px(sc.b);
+    s += `<line x1="${X0}" y1="${Y0}" x2="${X1}" y2="${Y1}" style="stroke:var(--sel)" stroke-width="30" stroke-linecap="round" opacity="0.18"/>`;
+  }
+  // potentiometer wiper arrow faces the side its wiper connection comes from
+  for (const c of comps) if (c.type === 'pot') {
+    const mid = midNode(c), [A, B] = ends(c);
+    const ang = Math.atan2(B[1] - A[1], B[0] - A[0]);
+    const perp = [-Math.sin(ang), Math.cos(ang)];
+    const o = comps.find(o => o !== c && (key(o.a) === key(mid) || key(o.b) === key(mid)));
+    c.wside = 1;
+    if (o) { const far = key(o.a) === key(mid) ? o.b : o.a; const d = (far[0] - mid[0]) * perp[0] + (far[1] - mid[1]) * perp[1]; c.wside = d < 0 ? -1 : 1; }
+  }
+  // wires first, then parts (so parts sit on top)
+  const order = [...comps].sort((a, b) => (a.type === 'wire' ? 0 : 1) - (b.type === 'wire' ? 0 : 1));
+  for (const c of order) {
+    const [A, B] = ends(c);
+    const t = transformFor(A, B);
+    s += `<g data-id="${c.id}" style="color:var(--line);cursor:grab"><g transform="${t.tf}">` +
+      `<line x1="0" y1="0" x2="${t.len}" y2="0" stroke="transparent" stroke-width="28"/>` + symbol(c, t.len) + `</g></g>`;
+  }
+  // labels (unrotated), meter letters
+  for (const c of comps) {
+    if (c.type === 'wire') continue;
+    const [A, B] = ends(c);
+    const t = transformFor(A, B);
+    const mx = (t.x0 + t.x1) / 2, my = (t.y0 + t.y1) / 2;
+    const horiz = Math.abs(t.y1 - t.y0) < 1;
+    if (c.type === 'ammeter' || c.type === 'voltmeter')
+      s += `<text x="${mx}" y="${my + 7}" font-size="20" font-weight="800" text-anchor="middle" style="fill:var(--line);pointer-events:none">${c.type === 'ammeter' ? 'A' : 'V'}</text>`;
+    const lab = labelFor(c);
+    if (!lab) continue;
+    const meter = c.type === 'ammeter' || c.type === 'voltmeter';
+    let lx = horiz ? mx : mx + 26, ly = horiz ? (meter ? my - 26 : my + 36) : my + 6;
+    if (c.type === 'pot') {           // keep the label away from the wiper side
+      const t2 = transformFor(...ends(c)), ang = Math.atan2(t2.y1 - t2.y0, t2.x1 - t2.x0);
+      const down = (c.wside || 1) * Math.cos(ang) > 0, right = -(c.wside || 1) * Math.sin(ang) > 0;
+      if (horiz) ly = down ? my - 26 : my + 36; else lx = right ? mx - 26 : mx + 26;
+    }
+    s += `<text x="${lx}" y="${ly}" font-size="${meter ? 18 : 15}" font-weight="${meter ? 800 : 600}" text-anchor="${horiz ? 'middle' : (lx < mx ? 'end' : 'start')}" ` +
+      `style="fill:${meter ? 'var(--accent)' : 'var(--muted)'};pointer-events:none">${lab}</text>`;
+  }
+  // junction dots
+  const deg = {};
+  for (const c of comps) {
+    const ks = [key(c.a), key(c.b)];
+    if (c.type === 'pot') ks.push(key(midNode(c)));
+    ks.forEach(k => deg[k] = (deg[k] || 0) + 1);
+  }
+  for (const k in deg) if (deg[k] >= 3) {
+    const [x, y] = k.split(',').map(Number), [X, Y] = px([x, y]);
+    s += `<circle cx="${X}" cy="${Y}" r="6" style="fill:var(--line)"/>`;
+  }
+  // current dots layer
+  s += `<g id="dots" style="pointer-events:none"></g>`;
+  // ghost
+  if (ghost) {
+    const t = transformFor(ghost.a, ghost.b);
+    const fake = { type: ghost.type, props: { ...TYPES[ghost.type].props, ...(ghost.props || {}) } };
+    s += `<g transform="${t.tf}" style="color:${ghost.ok ? 'var(--ghost)' : 'var(--warn)'};pointer-events:none" opacity="0.55">${symbol(fake, t.len)}</g>`;
+  }
+  svg.innerHTML = s;
+  buildDots();
+}
+
+let dotEls = [];
+function buildDots() {
+  const g = document.getElementById('dots');
+  dotEls = [];
+  for (const c of comps) {
+    const r = sol.res[c.id];
+    if (!r) continue;
+    r.segs.forEach((seg, si) => {
+      const [p, q, I] = seg;
+      const [x0, y0] = px(p), [x1, y1] = px(q);
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      const n = Math.max(1, Math.round(len / 21));
+      const els = [];
+      for (let i = 0; i < n; i++) {
+        const el = document.createElementNS(NS, 'circle');
+        el.setAttribute('r', '4.5');
+        el.style.fill = showElectrons ? '#0891b2' : 'var(--dot)';
+        g.appendChild(el); els.push(el);
+      }
+      dotEls.push({ id: c.id + ':' + si, x0, y0, x1, y1, len, I, els });
+    });
+  }
+}
+
+const speedOf = I => { const a = Math.abs(I); return a < 1e-5 ? 0 : Math.min(160, 12 + 70 * Math.sqrt(a)); };
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  for (const d of dotEls) {
+    const v = speedOf(d.I) * Math.sign(d.I) * (showElectrons ? -1 : 1);
+    dotState[d.id] = ((dotState[d.id] || 0) + v * dt) % d.len;
+    const sp = d.len / d.els.length;
+    d.els.forEach((el, i) => {
+      if (!v) { el.setAttribute('cx', -99); return; }
+      let s = (dotState[d.id] + i * sp) % d.len; if (s < 0) s += d.len;
+      const f = s / d.len;
+      el.setAttribute('cx', d.x0 + (d.x1 - d.x0) * f);
+      el.setAttribute('cy', d.y0 + (d.y1 - d.y0) * f);
+    });
+  }
+  requestAnimationFrame(frame);
+}
+
+// ===================== side panel =====================
+const $ = id => document.getElementById(id);
+// slider + editable number box. opts: {min,max,step} slider range, log (slider in log10),
+// lo/hi = limits for typed values (may exceed the slider range), unit, onRange(newMax) to extend slider.
+function field(label, val, opts, on) {
+  const { min, max, step = 'any', log = false, lo = -Infinity, hi = Infinity, unit = '' } = opts;
+  const d = document.createElement('div'); d.className = 'ctl';
+  d.innerHTML = `<label>${label} <span class="num"><input type="number" step="any"> ${unit}</span></label>` +
+    `<input type="range" min="${log ? Math.log10(min) : min}" max="${log ? Math.log10(max) : max}" step="${log ? 0.01 : step}">`;
+  const rng = d.querySelector('input[type=range]'), num = d.querySelector('input[type=number]');
+  const toR = v => log ? Math.log10(Math.max(v, min)) : v;
+  const show = v => { num.value = +(+v).toPrecision(4); rng.value = toR(v); };
+  show(val);
+  rng.addEventListener('input', () => {
+    let v = log ? Math.pow(10, +rng.value) : +rng.value;
+    if (log) v = +v.toPrecision(3);
+    num.value = +v.toPrecision(4); on(v);
+  });
+  const commit = () => {
+    let v = parseFloat(num.value);
+    if (!Number.isFinite(v)) { return; }
+    v = Math.min(hi, Math.max(lo, v));
+    if (!log && opts.extend && v > +rng.max) rng.max = v;   // typed past the end: stretch the slider
+    rng.value = toR(v);
+    on(v);
+  };
+  num.addEventListener('input', commit);
+  num.addEventListener('change', () => { commit(); const v = parseFloat(num.value); if (Number.isFinite(v)) num.value = Math.min(hi, Math.max(lo, v)); });
+  return d;
+}
+
+function buildPanel() {
+  const c = comps.find(c => c.id === selectedId);
+  $('nosel').classList.toggle('hidden', !!c);
+  $('sel').classList.toggle('hidden', !c);
+  if (!c) return;
+  $('sel-title').textContent = TYPES[c.type].label;
+  const box = $('sel-ctl'); box.innerHTML = '';
+  const p = c.props, upd = () => changed(false);
+  const add = el => box.appendChild(el);
+  const RES = { min: 0.1, max: 1e6, log: true, lo: 0.001, hi: 1e9, unit: 'Ω' };
+  switch (c.type) {
+    case 'battery':
+      add(field('e.m.f. E', p.E, { min: 0, max: 12, step: 0.1, lo: 0, hi: 1000, unit: 'V', extend: true }, v => { p.E = v; upd(); }));
+      add(field('internal resistance r', p.r, { min: 0, max: 5, step: 0.1, lo: 0, hi: 1e6, unit: 'Ω', extend: true }, v => { p.r = v; upd(); }));
+      break;
+    case 'resistor':
+      add(field('resistance', p.R, RES, v => { p.R = v; upd(); }));
+      break;
+    case 'varres':
+      add(field('resistance (slide it)', p.R, { min: 0, max: p.max, step: 0.5, lo: 0, hi: 1e9, unit: 'Ω', extend: true },
+        v => { p.R = v; if (v > p.max) p.max = v; upd(); }));
+      break;
+    case 'pot':
+      add(field('total resistance', p.R, RES, v => { p.R = v; upd(); }));
+      add(field('slider position', p.alpha * 100, { min: 0, max: 100, step: 1, lo: 0, hi: 100, unit: '%' }, v => { p.alpha = v / 100; upd(); }));
+      break;
+    case 'ldr':
+      add(field('light level', p.light, { min: 0, max: 100, step: 1, lo: 0, hi: 100, unit: '%' }, v => { p.light = v; upd(); }));
+      break;
+    case 'thermistor':
+      add(field('temperature', p.T, { min: 0, max: 100, step: 1, lo: -50, hi: 300, unit: '°C' }, v => { p.T = v; upd(); }));
+      break;
+    case 'lamp':
+      add(field('cold resistance', p.R0, { min: 1, max: 20, step: 0.5, lo: 0.1, hi: 1e6, unit: 'Ω', extend: true }, v => { p.R0 = v; upd(); }));
+      break;
+    case 'switch': {
+      const b = document.createElement('div'); b.className = 'row';
+      b.innerHTML = `<button>${p.closed ? 'Open switch' : 'Close switch'}</button>`;
+      b.querySelector('button').onclick = () => { p.closed = !p.closed; changed(true); };
+      add(b);
+      break;
+    }
+  }
+  $('btn-flip').classList.toggle('hidden', c.type !== 'battery');
+  updateReadouts();
+}
+
+function updateReadouts() {
+  const c = comps.find(c => c.id === selectedId);
+  if (!c) return;
+  const r = sol.res[c.id];
+  $('r-V').textContent = fmt(Math.abs(r.V), 'V');
+  $('r-I').textContent = fmt(Math.abs(r.I), 'A');
+  const showR = !['wire', 'ammeter', 'voltmeter', 'switch'].includes(c.type);
+  $('r-Rl').textContent = c.type === 'battery' ? 'internal r' : 'resistance';
+  $('r-R').textContent = showR ? fmt(c.type === 'pot' ? c.props.R : r.R, 'Ω') : '—';
+  $('r-P').textContent = fmt(Math.abs(r.V * r.I), 'W');
+  drawGraph(c, r);
+}
+
+function drawGraph(c, r) {
+  const cv = $('graph'), g = cv.getContext('2d');
+  const can = ['resistor', 'varres', 'ldr', 'thermistor', 'lamp', 'battery'].includes(c.type);
+  $('graph-box').classList.toggle('hidden', !can);
+  if (!can) return;
+  const Wc = cv.width, Hc = cv.height, pad = 60;
+  g.clearRect(0, 0, Wc, Hc);
+  g.font = '24px system-ui'; g.lineWidth = 2;
+  let pts = [], xl, yl, op;
+  if (c.type === 'battery') {
+    // terminal p.d. V against current I drawn from the battery
+    const E = c.props.E, rr = Math.max(c.props.r, 0.05), Imax = E / rr;
+    for (let i = 0; i <= 50; i++) { const I = Imax * i / 50; pts.push([I, E - I * c.props.r]); }
+    xl = 'I / A'; yl = 'V / V'; op = [Math.abs(r.I), Math.abs(r.V)];
+    $('graph-title').textContent = 'Terminal p.d. against current (dot = now)';
+  } else {
+    const Vm = Math.max(6, Math.abs(r.V) * 1.4);
+    for (let i = -50; i <= 50; i++) { const V = Vm * i / 50; pts.push([V, V / partR(c, V)]); }
+    xl = 'V / V'; yl = 'I / A'; op = [r.V, r.I];
+    $('graph-title').textContent = 'I–V graph (dot = now)';
+  }
+  const xs = pts.map(p => p[0]).concat(op[0]), ys = pts.map(p => p[1]).concat(op[1]);
+  let x0 = Math.min(0, ...xs), x1 = Math.max(...xs), y0 = Math.min(0, ...ys), y1 = Math.max(...ys);
+  if (x1 - x0 < 1e-9) x1 = x0 + 1; if (y1 - y0 < 1e-9) y1 = y0 + 1;
+  const X = x => pad + (x - x0) / (x1 - x0) * (Wc - pad - 20), Y = y => Hc - pad - (y - y0) / (y1 - y0) * (Hc - pad - 20);
+  g.strokeStyle = '#9ca3af';
+  g.beginPath(); g.moveTo(X(x0), Y(0)); g.lineTo(X(x1), Y(0)); g.moveTo(X(0), Y(y0)); g.lineTo(X(0), Y(y1)); g.stroke();
+  g.fillStyle = '#4b5563';
+  g.fillText(xl, Wc - 90, Y(0) + 30 > Hc - 5 ? Y(0) - 10 : Y(0) + 30);
+  g.fillText(yl, X(0) + 8, 26);
+  g.fillText(x1.toPrecision(2), X(x1) - 40, Hc - 12);
+  g.fillText(y1.toPrecision(2), 4, Y(y1) + 8);
+  g.strokeStyle = '#2563eb'; g.lineWidth = 4;
+  g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(X(p[0]), Y(p[1])) : g.moveTo(X(p[0]), Y(p[1]))); g.stroke();
+  g.fillStyle = '#dc2626';
+  g.beginPath(); g.arc(X(op[0]), Y(op[1]), 9, 0, 7); g.fill();
+}
+
+// ===================== interaction =====================
+function changed(rebuildPanel) {
+  solve();
+  render();
+  $('short').classList.toggle('hidden', !sol.short);
+  if (rebuildPanel) buildPanel(); else updateReadouts();
+}
+
+function svgPoint(ev) {
+  const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+  const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return [(p.x - M) / CELL, (p.y - M) / CELL];
+}
+function placementAt(type, g) {
+  const [gx, gy] = g;
+  const horiz = Math.abs(gy - Math.round(gy)) <= Math.abs(gx - Math.round(gx));
+  const cl = (v, hi) => Math.max(0, Math.min(hi, v));
+  if (TYPES[type].cells === 2) {
+    if (horiz) { const y = cl(Math.round(gy), ROWS - 1), x = cl(Math.round(gx), COLS - 2); const xx = Math.max(1, x); return [[xx - 1, y], [xx + 1, y]]; }
+    const x = cl(Math.round(gx), COLS - 1), y = Math.max(1, cl(Math.round(gy), ROWS - 2)); return [[x, y - 1], [x, y + 1]];
+  }
+  if (horiz) { const y = cl(Math.round(gy), ROWS - 1), x = cl(Math.floor(gx), COLS - 2); return [[x, y], [x + 1, y]]; }
+  const x = cl(Math.round(gx), COLS - 1), y = cl(Math.floor(gy), ROWS - 2); return [[x, y], [x, y + 1]];
+}
+
+let drag = null; // {id, start:[x,y], moved}
+svg.addEventListener('pointermove', ev => {
+  const g = svgPoint(ev);
+  if (tool !== 'select') {
+    const [a, b] = placementAt(tool, g);
+    ghost = { type: tool, a, b, ok: fits(a, b) };
+    render();
+  } else if (drag) {
+    if (Math.hypot(ev.clientX - drag.sx, ev.clientY - drag.sy) > 6) drag.moved = true;
+    if (drag.moved) {
+      const c = comps.find(c => c.id === drag.id);
+      const [a, b] = placementAt(c.type, g);
+      ghost = { type: c.type, a, b, ok: fits(a, b, c.id), props: c.props };
+      render();
+    }
+  }
+});
+svg.addEventListener('pointerleave', () => { if (ghost && !drag) { ghost = null; render(); } });
+svg.addEventListener('pointerdown', ev => {
+  const g = svgPoint(ev);
+  if (tool !== 'select') {
+    const [a, b] = placementAt(tool, g);
+    if (fits(a, b)) { const c = add(tool, a, b); selectedId = c.id; changed(true); }
+    return;
+  }
+  const hit = ev.target.closest('[data-id]');
+  if (hit) {
+    drag = { id: +hit.dataset.id, sx: ev.clientX, sy: ev.clientY, moved: false };
+    svg.setPointerCapture(ev.pointerId);
+  } else { selectedId = null; buildPanel(); render(); }
+});
+svg.addEventListener('pointerup', ev => {
+  if (!drag) return;
+  const c = comps.find(c => c.id === drag.id);
+  if (drag.moved && ghost && ghost.ok) { c.a = ghost.a; c.b = ghost.b; }
+  else if (!drag.moved && c.type === 'switch' && selectedId === c.id) { c.props.closed = !c.props.closed; }
+  selectedId = c.id;
+  drag = null; ghost = null;
+  changed(true);
+});
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape') setTool('select');
+  if ((ev.key === 'Delete' || ev.key === 'Backspace') && selectedId && document.activeElement.tagName !== 'INPUT') deleteSelected();
+});
+function deleteSelected() { comps = comps.filter(c => c.id !== selectedId); selectedId = null; changed(true); }
+$('btn-del').onclick = deleteSelected;
+$('btn-flip').onclick = () => { const c = comps.find(c => c.id === selectedId); c.rev = !c.rev; changed(true); };
+$('clear').onclick = () => { comps = []; selectedId = null; changed(true); };
+$('electrons').onchange = e => { showElectrons = e.target.checked; render(); };
+
+// palette
+function setTool(t) {
+  tool = t; ghost = null;
+  document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
+  render();
+}
+(function buildPalette() {
+  const pal = $('palette');
+  const mk = (t, label, icon) => {
+    const b = document.createElement('button'); b.className = 'tool'; b.dataset.tool = t;
+    b.innerHTML = `<svg viewBox="-4 -36 ${t === 'pot' ? 136 : 72} 72" style="color:var(--line)">${icon}</svg><span>${label}</span>`;
+    b.onclick = () => setTool(tool === t ? 'select' : t);
+    pal.appendChild(b);
+  };
+  mk('select', 'Select / move', `<path d="M14,-26 L14,22 L26,10 L36,30 L44,26 L34,6 L50,6 Z" fill="currentColor"/>`);
+  for (const t in TYPES) {
+    const len = TYPES[t].cells * 64;
+    mk(t, TYPES[t].label, symbol({ type: t, props: TYPES[t].props }, len));
+  }
+})();
+
+// ===================== scenarios =====================
+function wires(poly) {
+  for (let i = 0; i < poly.length - 1; i++) {
+    const a = poly[i], b = poly[i + 1];
+    const dx = Math.sign(b[0] - a[0]), dy = Math.sign(b[1] - a[1]);
+    let p = a.slice();
+    while (p[0] !== b[0] || p[1] !== b[1]) {
+      const q = [p[0] + dx, p[1] + dy];
+      if (fits(p, q)) add('wire', p, q);
+      p = q;
+    }
+  }
+}
+const PRESETS = {
+  series() {
+    add('battery', [2, 4], [2, 5], { E: 6, r: 0 });
+    add('resistor', [4, 2], [5, 2], { R: 10 });
+    add('resistor', [7, 2], [8, 2], { R: 20 });
+    add('ammeter', [10, 4], [10, 5]);
+    add('voltmeter', [4, 1], [5, 1]);
+    add('voltmeter', [7, 1], [8, 1]);
+    wires([[2, 4], [2, 2], [10, 2], [10, 4]]); wires([[10, 5], [10, 7], [2, 7], [2, 5]]);
+    wires([[4, 2], [4, 1]]); wires([[5, 1], [5, 2]]); wires([[7, 2], [7, 1]]); wires([[8, 1], [8, 2]]);
+  },
+  parallel() {
+    add('battery', [2, 4], [2, 5], { E: 6, r: 0 });
+    add('ammeter', [4, 2], [5, 2]);
+    add('ammeter', [7, 2], [7, 3]); add('resistor', [7, 4], [7, 5], { R: 10 });
+    add('ammeter', [10, 2], [10, 3]); add('resistor', [10, 4], [10, 5], { R: 20 });
+    wires([[2, 4], [2, 2], [10, 2]]); wires([[7, 3], [7, 4]]); wires([[10, 3], [10, 4]]);
+    wires([[7, 5], [7, 7]]); wires([[10, 5], [10, 7], [2, 7], [2, 5]]);
+  },
+  ldr() {
+    add('battery', [2, 4], [2, 5], { E: 6, r: 0 });
+    add('resistor', [9, 3], [9, 4], { R: 1000 });
+    add('ldr', [9, 5], [9, 6], { light: 50 });
+    add('voltmeter', [11, 5], [11, 6]);
+    wires([[2, 4], [2, 2], [9, 2], [9, 3]]); wires([[9, 4], [9, 5]]); wires([[9, 6], [9, 7], [2, 7], [2, 5]]);
+    wires([[9, 5], [11, 5]]); wires([[11, 6], [9, 6]]);
+  },
+  therm() {
+    add('battery', [2, 4], [2, 5], { E: 6, r: 0 });
+    add('resistor', [9, 3], [9, 4], { R: 1000 });
+    add('thermistor', [9, 5], [9, 6], { T: 25 });
+    add('voltmeter', [11, 5], [11, 6]);
+    wires([[2, 4], [2, 2], [9, 2], [9, 3]]); wires([[9, 4], [9, 5]]); wires([[9, 6], [9, 7], [2, 7], [2, 5]]);
+    wires([[9, 5], [11, 5]]); wires([[11, 6], [9, 6]]);
+  },
+  pot() {
+    add('battery', [2, 4], [2, 5], { E: 6, r: 0 });
+    add('pot', [8, 7], [6, 7], { R: 100, alpha: 0.5 });
+    add('lamp', [6, 8], [5, 8], { R0: 4 });
+    add('voltmeter', [6, 9], [5, 9]);
+    add('switch', [5, 2], [6, 2]);
+    wires([[2, 4], [2, 2], [10, 2], [10, 7], [8, 7]]); wires([[6, 7], [2, 7], [2, 5]]);
+    wires([[7, 7], [7, 8], [6, 8]]); wires([[5, 8], [4, 8], [4, 7]]);
+    wires([[6, 8], [6, 9]]); wires([[5, 9], [5, 8]]);
+  },
+  emf() {
+    add('battery', [2, 4], [2, 5], { E: 6, r: 2 });
+    add('voltmeter', [0, 4], [0, 5]);
+    add('varres', [5, 2], [6, 2], { R: 10, max: 50 });
+    add('ammeter', [10, 4], [10, 5]);
+    add('switch', [6, 7], [5, 7]);
+    wires([[2, 4], [2, 2], [10, 2], [10, 4]]); wires([[10, 5], [10, 7], [2, 7], [2, 5]]);
+    wires([[2, 4], [1, 4], [0, 4]]); wires([[0, 5], [1, 5], [2, 5]]);
+  },
+  lampiv() {
+    add('battery', [2, 4], [2, 5], { E: 6, r: 0.1 });
+    add('varres', [5, 2], [6, 2], { R: 10, max: 100 });
+    add('lamp', [9, 4], [9, 5], { R0: 4 });
+    add('ammeter', [6, 7], [5, 7]);
+    add('voltmeter', [11, 4], [11, 5]);
+    wires([[2, 4], [2, 2], [9, 2], [9, 4]]); wires([[9, 5], [9, 7], [2, 7], [2, 5]]);
+    wires([[9, 4], [11, 4]]); wires([[11, 5], [9, 5]]);
+  },
+};
+function loadPreset(name) {
+  comps = []; nextId = 1; selectedId = null;
+  PRESETS[name]();
+  const focus = { ldr: 'ldr', therm: 'thermistor', pot: 'pot', emf: 'battery', lampiv: 'lamp', series: 'resistor', parallel: 'resistor' }[name];
+  const f = comps.find(c => c.type === focus); if (f) selectedId = f.id;
+  changed(true);
+}
+$('preset').onchange = e => { if (e.target.value) loadPreset(e.target.value); e.target.value = ''; };
+
+loadPreset(PRESETS[location.hash.slice(1)] ? location.hash.slice(1) : 'series');
+setTool('select');
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
