@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Potentiometer — 9702 Q5</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f3f5f8; --ink: #111827; --muted: #4b5563; --line: #1f2937;
+    --accent: #2563eb; --ok: #15803d; --warn: #b91c1c;
+    --hi: #dc2626; --lo: #2563eb; --dot-conv: #f59e0b; --dot-elec: #0891b2;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .app { display: grid; grid-template-columns: 3fr 1fr; gap: 16px; height: 100vh; padding: 16px; }
+  .stage { display: flex; flex-direction: column; min-width: 0; }
+  .stage h1 { font-size: 22px; margin: 0 0 4px; }
+  .stage svg { flex: 1 1 0; width: 100%; min-height: 0; user-select: none; }
+  .panel { background: var(--panel); border-radius: 10px; padding: 14px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .ctl label { display: flex; justify-content: space-between; font-size: 18px; font-weight: 600; }
+  .ctl input[type=range] { width: 100%; height: 22px; margin: 2px 0; accent-color: var(--accent); }
+  .toggle { display: flex; align-items: center; gap: 8px; font-size: 18px; line-height: 1.1; }
+  .toggle input { width: 20px; height: 20px; }
+  button { font-size: 18px; padding: 8px; border-radius: 8px; border: 2px solid var(--accent);
+    background: #fff; color: var(--accent); font-weight: 700; cursor: pointer; }
+  .readouts { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; font-size: 20px; line-height: 1.2;
+    border-top: 2px solid #d1d5db; padding-top: 8px; }
+  .readouts dt { color: var(--muted); }
+  .readouts dd { margin: 0; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .footer { display: flex; gap: 24px; flex-wrap: wrap; padding-top: 6px; border-top: 2px solid #d1d5db; }
+  .kvl { font-size: 20px; color: var(--muted); }
+  .kvl .eq { font-size: 26px; color: var(--ink); font-weight: 800; font-variant-numeric: tabular-nums; }
+  .hidden { display: none !important; }
+  svg text { font-family: inherit; fill: var(--ink); }
+  @media (max-width: 900px) { .app { grid-template-columns: 1fr; height: auto; } .stage svg { height: 60vh; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="stage">
+    <h1>Potentiometer — 9702/21 May/June 2021, Q5</h1>
+    <svg id="circuit" viewBox="0 0 800 540" aria-label="Potentiometer circuit">
+      <defs>
+        <linearGradient id="potgrad" gradientUnits="userSpaceOnUse" x1="100" y1="0" x2="700" y2="0">
+          <stop offset="0" style="stop-color:var(--hi)"/><stop offset="1" style="stop-color:var(--lo)"/>
+        </linearGradient>
+        <linearGradient id="legendgrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" style="stop-color:var(--hi)"/><stop offset="1" style="stop-color:var(--lo)"/>
+        </linearGradient>
+      </defs>
+      <!-- main loop wires -->
+      <g style="stroke:var(--line)" stroke-width="4" fill="none" stroke-linecap="round">
+        <path d="M100,320 L100,90 L262,90"/>
+        <path d="M308,90 L380,90"/>
+        <path d="M450,90 L700,90 L700,165"/>
+        <path d="M700,255 L700,320"/>
+      </g>
+      <!-- battery: two cells, long (+) plate toward X side -->
+      <g style="stroke:var(--line)" stroke-linecap="round">
+        <line x1="262" y1="62" x2="262" y2="118" stroke-width="5"/>
+        <line x1="274" y1="76" x2="274" y2="104" stroke-width="9"/>
+        <line x1="274" y1="90" x2="296" y2="90" stroke-width="4" stroke-dasharray="3 4"/>
+        <line x1="296" y1="62" x2="296" y2="118" stroke-width="5"/>
+        <line x1="308" y1="76" x2="308" y2="104" stroke-width="9"/>
+      </g>
+      <text x="252" y="58" font-size="22" font-weight="700">+</text>
+      <g id="r-group"><rect x="380" y="76" width="70" height="28" fill="#fff" style="stroke:var(--line)" stroke-width="4"/></g>
+      <line id="r-bypass" x1="380" y1="90" x2="450" y2="90" style="stroke:var(--line)" stroke-width="4"/>
+      <rect x="240" y="44" width="230" height="92" fill="none" style="stroke:var(--muted)" stroke-width="2" stroke-dasharray="8 6"/>
+      <text id="lbl-E" x="240" y="34" font-size="22" font-weight="700">E = 4.0 V</text>
+      <text id="lbl-r" x="372" y="34" font-size="22" font-weight="700">r = 0.35 Ω</text>
+      <!-- fixed resistor R -->
+      <rect x="686" y="165" width="28" height="90" fill="#fff" style="stroke:var(--line)" stroke-width="4"/>
+      <text id="lbl-R" x="676" y="216" font-size="22" font-weight="700" text-anchor="end">R = 0.75 Ω</text>
+      <!-- wire XY coloured by potential -->
+      <line id="wire-xy" x1="100" y1="320" x2="700" y2="320" stroke="url(#potgrad)" stroke-width="12" stroke-linecap="round"/>
+      <rect id="wire-hit" x="90" y="300" width="620" height="40" fill="transparent" style="cursor:ew-resize"/>
+      <text x="80" y="356" font-size="26" font-weight="800">X</text>
+      <text x="704" y="356" font-size="26" font-weight="800">Y</text>
+      <text id="lbl-Rxy" x="400" y="300" font-size="20" text-anchor="middle" font-weight="700">R_XY = 0.90 Ω</text>
+      <text x="400" y="356" font-size="20" text-anchor="middle" style="fill:var(--muted)">L = 0.45 m</text>
+      <g font-size="16" font-weight="700">
+        <rect x="520" y="372" width="180" height="10" fill="url(#legendgrad)"/>
+        <text x="520" y="400" style="fill:var(--hi)">high V</text>
+        <text x="700" y="400" text-anchor="end" style="fill:var(--lo)">low V</text>
+      </g>
+      <!-- current dots (main loop, conventional direction: + terminal → X → Y → R → −) -->
+      <path id="path-main" d="M262,90 L100,90 L100,320 L700,320 L700,90 L308,90 Z" fill="none" stroke="none"/>
+      <g id="dots"></g>
+      <!-- potentiometer branch -->
+      <g id="branch">
+        <path id="path-branch" d="M100,320 L100,460 L165,460" fill="none" style="stroke:var(--line)" stroke-width="4"/>
+        <line x1="165" y1="432" x2="165" y2="488" style="stroke:var(--line)" stroke-width="5"/>
+        <line x1="179" y1="446" x2="179" y2="474" style="stroke:var(--line)" stroke-width="9"/>
+        <text x="152" y="428" font-size="22" font-weight="700">+</text>
+        <text id="lbl-Ecell" x="140" y="520" font-size="22" font-weight="700">1.2 V</text>
+        <line x1="179" y1="460" x2="298" y2="460" style="stroke:var(--line)" stroke-width="4"/>
+        <circle cx="330" cy="460" r="32" fill="#fff" style="stroke:var(--line)" stroke-width="4"/>
+        <g style="stroke:var(--muted)" stroke-width="2">
+          <line x1="330" y1="436" x2="330" y2="442"/>
+          <line x1="311" y1="444" x2="314" y2="448"/>
+          <line x1="349" y1="444" x2="346" y2="448"/>
+        </g>
+        <line id="needle" x1="330" y1="476" x2="330" y2="438" style="stroke:var(--warn)" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="330" cy="476" r="4" style="fill:var(--line)"/>
+        <text x="324" y="512" font-size="20" font-weight="800">G</text>
+        <path id="lead" d="" fill="none" style="stroke:var(--line)" stroke-width="4" stroke-dasharray="2 0"/>
+        <g id="contact-p" style="cursor:ew-resize">
+          <circle id="p-hit" cx="0" cy="330" r="26" fill="transparent"/>
+          <polygon id="p-tip" points="" style="fill:var(--accent)"/>
+          <text id="p-lbl" x="0" y="296" font-size="24" font-weight="800" text-anchor="middle" style="fill:var(--accent)">P</text>
+        </g>
+        <text id="lbl-Vxp" x="0" y="270" font-size="18" font-weight="700" text-anchor="middle" style="fill:var(--accent)"></text>
+        <g id="badge" class="hidden">
+          <rect x="470" y="452" width="310" height="48" rx="10" style="fill:var(--ok)"/>
+          <text x="625" y="484" font-size="24" font-weight="800" text-anchor="middle" style="fill:#fff">BALANCED — G reads 0</text>
+        </g>
+        <g id="nobal" class="hidden" font-size="19" font-weight="800" text-anchor="end" style="fill:var(--warn)">
+          <text id="nobal-1" x="790" y="470" style="fill:var(--warn)"></text>
+          <text id="nobal-2" x="790" y="496" style="fill:var(--warn)"></text>
+        </g>
+      </g>
+    </svg>
+    <div class="footer">
+      <div class="kvl">
+        <div>Kirchhoff's 2nd law: E = <span id="kvl-ir">Ir + </span>IR + I·R<sub>XY</sub></div>
+        <div class="eq" id="o-kvl"></div>
+      </div>
+      <div class="kvl">
+        <div>Electrons through the battery</div>
+        <div class="eq"><span id="o-eps"></span> per second &nbsp;·&nbsp; <span id="o-e45"></span> in 45 s</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ctl"><label>e.m.f. E <span id="v-E"></span></label><input type="range" id="in-E" data-key="E" min="1.0" max="6.0" step="0.1"></div>
+    <div class="ctl" id="ctl-r"><label>internal r <span id="v-r"></span></label><input type="range" id="in-r" data-key="r" min="0" max="2" step="0.05"></div>
+    <div class="ctl"><label>resistor R <span id="v-R"></span></label><input type="range" id="in-R" data-key="R" min="0" max="5" step="0.05"></div>
+    <div class="ctl"><label><span>wire R<sub>XY</sub></span> <span id="v-Rxy"></span></label><input type="range" id="in-Rxy" data-key="Rxy" min="0.1" max="3" step="0.05"></div>
+    <div class="ctl branch-only"><label>cell e.m.f. <span id="v-Ecell"></span></label><input type="range" id="in-Ecell" data-key="Ecell" min="0.2" max="3.0" step="0.1"></div>
+    <div class="ctl branch-only"><label>XP <span id="v-xp"></span></label><input type="range" id="in-xp" data-key="xp" min="0" max="0.45" step="0.005"></div>
+    <label class="toggle"><input type="checkbox" id="in-internal"> Show internal resistance</label>
+    <label class="toggle"><input type="checkbox" id="in-branch"> Show potentiometer branch</label>
+    <label class="toggle"><input type="checkbox" id="in-electrons"> Show electron flow</label>
+    <button id="reset">Reset to exam values</button>
+
+
+    <dl class="readouts">
+      <dt>current I</dt><dd id="o-I"></dd>
+      <dt>p.d. across XY</dt><dd id="o-Vxy"></dd>
+      <dt>p.d. across R</dt><dd id="o-VR"></dd>
+      <dt class="r-only">lost volts Ir</dt><dd class="r-only" id="o-Vr"></dd>
+      <dt>terminal p.d.</dt><dd id="o-Vterm"></dd>
+      <dt>gradient on XY</dt><dd id="o-k"></dd>
+      <dt class="branch-only">V<sub>XP</sub> / cell</dt><dd class="branch-only" id="o-Vxp"></dd>
+      <dt class="branch-only">balance XP</dt><dd class="branch-only" id="o-xpBal"></dd>
+    </dl>
+  </div>
+</div>
+<script id="physics">
+// Pure physics for 9702/21 May/June 2021 Q5. Ideal (syllabus) potentiometer:
+// the galvanometer branch draws negligible current, so k is uniform along XY.
+const L = 0.45;              // length of wire XY (m), answer to 5(c)(i)
+const E_CHARGE = 1.60e-19;   // C
+const FULL_SCALE_DV = 0.05;  // V of imbalance for full needle deflection
+const SNAP_DIST = 0.0025;    // m; P snaps to balance within half a slider step
+const DEFAULTS = { E: 4.0, r: 0.35, R: 0.75, Rxy: 0.90, Ecell: 1.2, xp: 0.30, branch: true, electrons: false, internal: true };
+
+function clamp(x, lo, hi) { return Math.min(hi, Math.max(lo, x)); }
+
+// Splits E into 2 d.p. parts that add up exactly to E (largest-remainder method).
+function kirchhoffParts(E, terms) {
+  const target = Math.round(E * 100);
+  const cents = terms.map(t => Math.max(0, t * 100));
+  const out = cents.map(Math.floor);
+  let diff = target - out.reduce((a, b) => a + b, 0);
+  const order = cents.map((c, i) => [c - Math.floor(c), i]);
+  order.sort((a, b) => b[0] - a[0]);
+  for (let j = 0; diff > 0; j = (j + 1) % order.length, diff--) out[order[j][1]]++;
+  for (let j = order.length - 1; diff < 0; j = (j - 1 + order.length) % order.length) {
+    const i = order[j][1];
+    if (out[i] > 0) { out[i]--; diff++; }
+  }
+  return { total: E.toFixed(1), parts: out.map(c => (c / 100).toFixed(2)) };
+}
+
+function solve(state) {
+  const { E, R, Rxy, Ecell, xp, branch } = state;
+  const r = state.internal === false ? 0 : state.r;   // hidden internal resistance = ideal battery
+  const I = E / (r + R + Rxy);
+  const Vr = I * r, VR = I * R, Vxy = I * Rxy;
+  const k = Vxy / L;
+  const Vxp = k * xp;
+  const bal = Ecell / k;
+  const noBalance = bal > L;
+  const xpBal = noBalance ? null : bal;
+  const balanced = !!branch && xpBal !== null && Math.abs(xp - xpBal) < 1e-9;
+  const dV = balanced ? 0 : Vxp - Ecell;
+  const needle = branch ? (balanced ? 0 : clamp(dV / FULL_SCALE_DV, -1, 1)) : 0;
+  const electronsPerSec = I / E_CHARGE;
+  return {
+    I, Vr, VR, Vxy, Vterm: E - Vr, k, Vxp, dV, xpBal, noBalance, balanced, needle,
+    electronsPerSec, electrons45: 45 * electronsPerSec,
+    kirchhoff: kirchhoffParts(E, state.internal === false ? [VR, Vxy] : [Vr, VR, Vxy]),
+  };
+}
+
+function snapXP(xp, state) {
+  const x = clamp(xp, 0, L);
+  const bal = solve({ ...state, xp: x }).xpBal;
+  return bal !== null && Math.abs(x - bal) <= SNAP_DIST ? bal : x;
+}
+
+const SUP = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '-': '⁻' };
+function fmtSci(x, sf) {
+  const [m, e] = x.toExponential(sf - 1).split('e');
+  return `${m} × 10${String(+e).split('').map(c => SUP[c]).join('')}`;
+}
+</script>
+<script id="ui">
+// UI: the ONLY place solve() is called is setState(). Everything on screen reads `result`.
+const $ = id => document.getElementById(id);
+const WIRE_X0 = 100, WIRE_X1 = 700, WIRE_Y = 320;
+const NEEDLE_MAX_DEG = 45;
+let state = { ...DEFAULTS };
+let result = solve(state);
+
+function setState(patch, opts = {}) {
+  state = { ...state, ...patch };
+  if (opts.fromP) state.xp = snapXP(state.xp, state);
+  result = solve(state);
+  render();
+}
+
+const f2 = x => x.toFixed(2);
+const xpToSvg = xp => WIRE_X0 + (WIRE_X1 - WIRE_X0) * (xp / L);
+
+function render() {
+  const s = state, o = result;
+  // slider positions + value labels
+  for (const k of ['E', 'r', 'R', 'Rxy', 'Ecell', 'xp']) $('in-' + k).value = s[k];
+  $('v-E').textContent = s.E.toFixed(1) + ' V';
+  $('v-r').textContent = f2(s.r) + ' Ω';
+  $('v-R').textContent = f2(s.R) + ' Ω';
+  $('v-Rxy').textContent = f2(s.Rxy) + ' Ω';
+  $('v-Ecell').textContent = s.Ecell.toFixed(1) + ' V';
+  $('v-xp').textContent = s.xp.toFixed(3) + ' m';
+  $('in-branch').checked = s.branch;
+  $('in-electrons').checked = s.electrons;
+  $('in-internal').checked = s.internal;
+  $('ctl-r').classList.toggle('hidden', !s.internal);
+  $('r-group').classList.toggle('hidden', !s.internal);
+  $('lbl-r').classList.toggle('hidden', !s.internal);
+  $('r-bypass').classList.toggle('hidden', s.internal);
+  $('kvl-ir').classList.toggle('hidden', !s.internal);
+  document.querySelectorAll('.r-only').forEach(el => el.classList.toggle('hidden', !s.internal));
+
+  // diagram labels
+  $('lbl-E').textContent = `E = ${s.E.toFixed(1)} V`;
+  $('lbl-r').textContent = `r = ${f2(s.r)} Ω`;
+  $('lbl-R').textContent = `R = ${f2(s.R)} Ω`;
+  $('lbl-Rxy').textContent = `R_XY = ${f2(s.Rxy)} Ω`;
+  $('lbl-Ecell').textContent = `${s.Ecell.toFixed(1)} V`;
+
+  // branch + contact P + flexible lead
+  $('branch').classList.toggle('hidden', !s.branch);
+  document.querySelectorAll('.branch-only').forEach(el => el.classList.toggle('hidden', !s.branch));
+  const px = xpToSvg(s.xp);
+  $('p-hit').setAttribute('cx', px);
+  $('p-tip').setAttribute('points', `${px},${WIRE_Y + 7} ${px - 11},${WIRE_Y + 27} ${px + 11},${WIRE_Y + 27}`);
+  $('p-lbl').setAttribute('x', px + 24);
+  $('p-lbl').setAttribute('y', WIRE_Y + 30);
+  $('lead').setAttribute('d', `M362,460 C${Math.max(px, 400)},${470} ${px},${430} ${px},${WIRE_Y + 27}`);
+  $('lbl-Vxp').setAttribute('x', px);
+  $('lbl-Vxp').textContent = `V_XP = ${f2(o.Vxp)} V`;
+
+  // readouts
+  $('o-I').textContent = f2(o.I) + ' A';
+  $('o-Vxy').textContent = f2(o.Vxy) + ' V';
+  $('o-VR').textContent = f2(o.VR) + ' V';
+  $('o-Vr').textContent = f2(o.Vr) + ' V';
+  $('o-Vterm').textContent = f2(o.Vterm) + ' V';
+  $('o-k').textContent = f2(o.k) + ' V/m';
+  $('o-Vxp').textContent = `${f2(o.Vxp)} V / ${s.Ecell.toFixed(1)} V`;
+  $('o-xpBal').textContent = o.xpBal === null ? '—' : o.xpBal.toFixed(3) + ' m';
+  $('o-eps').textContent = fmtSci(o.electronsPerSec, 3);
+  $('o-e45').textContent = fmtSci(o.electrons45, 2);
+  $('badge').classList.toggle('hidden', !o.balanced);
+  const nb = s.branch && o.noBalance;
+  $('nobal').classList.toggle('hidden', !nb);
+  if (nb) {
+    $('nobal-1').textContent = `No balance point: p.d. across XY (${f2(o.Vxy)} V)`;
+    $('nobal-2').textContent = `is less than cell e.m.f. (${f2(s.Ecell)} V)`;
+  }
+  const kv = o.kirchhoff;
+  $('o-kvl').textContent = `${kv.total} V = ` + kv.parts.map(p => p + ' V').join(' + ');
+}
+
+// ---- inputs ----
+document.querySelectorAll('input[type=range]').forEach(inp => {
+  inp.addEventListener('input', () => {
+    const key = inp.dataset.key;
+    setState({ [key]: parseFloat(inp.value) }, { fromP: key === 'xp' });
+  });
+});
+$('in-branch').addEventListener('change', e => setState({ branch: e.target.checked }));
+$('in-electrons').addEventListener('change', e => setState({ electrons: e.target.checked }));
+$('in-internal').addEventListener('change', e => setState({ internal: e.target.checked }));
+$('reset').addEventListener('click', () => setState({ ...DEFAULTS }, { fromP: true }));
+
+// ---- drag P along the wire ----
+const svg = $('circuit');
+let dragging = false;
+function pointerToXp(ev) {
+  const pt = svg.createSVGPoint();
+  pt.x = ev.clientX; pt.y = ev.clientY;
+  const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return ((p.x - WIRE_X0) / (WIRE_X1 - WIRE_X0)) * L;
+}
+for (const el of [$('contact-p'), $('wire-hit')]) {
+  el.style.touchAction = 'none';
+  el.addEventListener('pointerdown', ev => {
+    if (!state.branch) return;
+    dragging = true;
+    el.setPointerCapture(ev.pointerId);
+    setState({ xp: pointerToXp(ev) }, { fromP: true });
+  });
+  el.addEventListener('pointermove', ev => { if (dragging) setState({ xp: pointerToXp(ev) }, { fromP: true }); });
+  el.addEventListener('pointerup', () => { dragging = false; });
+  el.addEventListener('pointercancel', () => { dragging = false; });
+}
+
+// ---- animation: current dots + needle easing ----
+const pathMain = $('path-main');
+const pathLen = pathMain.getTotalLength();
+const DOT_GAP = 40;
+const dots = [];
+for (let i = 0; i < Math.floor(pathLen / DOT_GAP); i++) {
+  const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  c.setAttribute('r', '6');
+  $('dots').appendChild(c);
+  dots.push(c);
+}
+let offset = 0, needleDeg = 0, last = performance.now();
+// dot speed (px/s): monotonic in I, floor so small currents still creep, cap to stay watchable
+const dotSpeed = I => Math.min(320, 25 + 45 * I);
+
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  const dir = state.electrons ? -1 : 1;
+  offset = (offset + dir * dotSpeed(result.I) * dt) % pathLen;
+  if (offset < 0) offset += pathLen;
+  const colour = state.electrons ? 'var(--dot-elec)' : 'var(--dot-conv)';
+  dots.forEach((c, i) => {
+    const p = pathMain.getPointAtLength((offset + i * DOT_GAP) % pathLen);
+    c.setAttribute('cx', p.x); c.setAttribute('cy', p.y);
+    c.style.fill = colour;
+  });
+  const target = result.needle * NEEDLE_MAX_DEG;
+  needleDeg += (target - needleDeg) * (1 - Math.exp(-dt / 0.045));
+  if (target === 0 && Math.abs(needleDeg) < 0.2) needleDeg = 0;
+  $('needle').setAttribute('transform', `rotate(${needleDeg} 330 476)`);
+  requestAnimationFrame(frame);
+}
+
+render();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
